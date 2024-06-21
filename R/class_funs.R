@@ -69,7 +69,6 @@ predict.drbart <- function(object, xpred, ygrid,
   post_fun <- tmp$post_fun
   preds <- tmp$preds
   
-  
   # Read in trees
   ts_mean <- TreeSamples$new()
   ts_mean$load(mean_file)
@@ -116,8 +115,8 @@ predict.drbart <- function(object, xpred, ygrid,
       list(x = xpred, quantile = quantiles, sample = seq_len(dim(preds)[3]))
   }
   else {
-    dimnames(preds) <- 
-      list(x = xpred, y = ygrid, sample = seq_len(dim(preds)[3]))
+    #dimnames(preds) <- 
+    #  list(x = xpred, y = ygrid, sample = seq_len(dim(preds)[3]))
   }
 
   out <- list(preds = preds,
