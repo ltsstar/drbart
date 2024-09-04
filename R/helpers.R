@@ -7,7 +7,7 @@ check_args <- function(x, y,
   if (is.vector(x) && is.atomic(x)) {
     x <- matrix(x, ncol = 1)
   }
-  stopifnot(is.matrix(x))
+  stopifnot(is.matrix(x) || is.big.matrix(x))
   stopifnot(dim(x)[1] == length(y))
 
   stopifnot(0 <= nburn)
