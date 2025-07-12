@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <vector>
+#include <tuple>
 
 #include "info.h"
 #include "rng.h"
@@ -51,8 +52,8 @@ public:
 #else
    friend bool bd(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen);
    friend bool bd_rj(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen);
-   friend bool bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen);
-   friend bool bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen);
+   friend std::tuple<bool, bool> bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen);
+   friend std::tuple<bool, bool> bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen);
 #endif
 
    //------------------------------

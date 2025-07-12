@@ -870,32 +870,39 @@ void drphi(tree& t, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
 	allsuff(t,xi,di,bnv,sv);
 	
 	for(tree::npv::size_type i=0;i!=bnv.size();i++) {
-    //gamma prior
-    //double mu = gen.gamma(0.5*sv[i].n + pi.tau, 1.0)/(0.5*sv[i].sy2 + pi.tau);
+		//gamma prior
+		//double mu = gen.gamma(0.5*sv[i].n + pi.tau, 1.0)/(0.5*sv[i].sy2 + pi.tau);
 		double mu;
-    double tau = pi.tau, n = sv[i].n, sy2 = sv[i].sy2;
-    
-    //compute weights
-    double ga = tau+0.5*n, gb = tau+0.5*sy2;
-    double loga = lgamma(ga) - ga*log(gb); //nc for gamma
-    double logb = gig_norm(0.5*n-tau, 2.0*tau, sy2);
-    double logapb = logsumexp(loga, logb);
-    if(log(gen.uniform())<loga-logapb) {
-      //gamma
-      mu = gen.gamma(ga, 1.0)/gb;
-    } else {
-      //gig
-      mu = do_rgig1(0.5*n-tau, 2.0*tau, sy2);
-    }
-    
-    
-    bnv[i]->setm(mu);
-    if(bnv[i]->getm() != bnv[i]->getm()) {
-      for(int ii=0; ii<di.n; ++ii) Rcout << *(di.x + ii*di.p) <<" "; //*(x + p*i+j)
-      Rcout << endl<<" svi[n] "<<sv[i].n<<" i "<<i;
-      Rcout << endl << t;
-      Rcpp::stop("drmu failed");
-    }
+		double tau = pi.tau, n = sv[i].n, sy2 = sv[i].sy2;
+		
+		//compute weights
+		double ga = tau+0.5*n, gb = tau+0.5*sy2;
+		double loga = lgamma(ga) - ga*log(gb); //nc for gamma
+		double logb = gig_norm(0.5*n-tau, 2.0*tau, sy2);
+		double logapb = logsumexp(loga, logb);
+		if(log(gen.uniform()) < loga-logapb) {
+			//gamma
+			mu = gen.gamma(ga, 1.0)/gb;
+		} else {
+			//gig
+			mu = do_rgig1(0.5*n-tau, 2.0*tau, sy2);
+		}
+		
+
+		// clip precision to avoid numerical issues
+		if(mu < 1e-8) mu = 1e-8;
+		
+		bnv[i]->setm(mu);
+		if(bnv[i]->getm() != bnv[i]->getm()) {
+			for(int ii=0; ii<di.n; ++ii) Rcout << *(di.x + ii*di.p) <<" "; //*(x + p*i+j)
+			Rcout << endl<<" svi[n] "<<sv[i].n<<" i "<<i;
+			Rcout << endl << t;
+			Rcpp::stop("drmu failed");
+		}
+
+		if(bnv[i]->getm() <= 0) {
+			Rcout << "drphi : bnv[i]->getm() <= 0: " << bnv[i]->getm() << mu << endl;
+		}
 	}
 }
 

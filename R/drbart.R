@@ -104,6 +104,7 @@ drbart <- function(y, x,
     mean_cuts <- lapply(data.frame(x), .cp_quantile) # check just apply
   }
   mean_cuts <- c(list((1:9999) / 10000), mean_cuts)
+  #mean_cuts <- c(list(0.5), mean_cuts)
 
   if (missing(prec_cuts)) {
     if (variance == 'ux') {

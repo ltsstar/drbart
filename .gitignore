@@ -5,5 +5,11 @@
 src/*.o
 src/*.so
 src/*.dll
+test/**/*
 *.txt
+*.log
+*.json
 .DS_Store
+.vscode/**/*
+dr_bart_mean.txt
+dr_bart_prec.txt

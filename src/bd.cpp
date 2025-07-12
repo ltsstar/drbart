@@ -1,4 +1,6 @@
 #include <iostream>
+#include <tuple>
+#include <algorithm>
 
 #include "info.h"
 #include "tree.h"
@@ -277,7 +279,7 @@ bool bd(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
    }
 }
 
-bool bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
+std::tuple<bool, bool> bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
 {
    tree::npv goodbots;  //nodes we could birth at (split on)
    double PBx = getpb(x,xi,pi,goodbots); //prob of a birth at x
@@ -294,7 +296,26 @@ bool bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
       //draw v,  the variable
       std::vector<size_t> goodvars; //variables nx can split on
       getgoodvars(nx,xi,goodvars);
-      size_t vi = floor(gen.uniform()*goodvars.size()); //index of chosen split variable
+
+      size_t vi;
+
+      
+      if (std::find(goodvars.begin(), goodvars.end(), 0) != goodvars.end() && goodvars.size() > 1) {
+        // u is in goodvars and also other variables are available
+        // check for u split
+        if(gen.uniform() < std::min(1.0 / goodvars.size(), 0.2)) {
+         // do usplit
+         vi = 0;
+        } else {
+         vi = floor(gen.uniform()*(goodvars.size() - 1)) + 1; //index of chosen split variable
+        }
+      } else {
+        vi = floor(gen.uniform()*goodvars.size()); //index of chosen split variable
+      }
+      
+      //vi = floor(gen.uniform()*goodvars.size()); //index of chosen split variable
+
+
       size_t v = goodvars[vi];
 
       //draw c, the cutpoint
@@ -409,9 +430,9 @@ bool bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
 //cout << "birth, mul=" << mul << " mur=" << mur << endl;
          //x.birthp(nx,v,c,mul,mur);
 			x.birth(nx->nid(),v,c,mul,mur);
-         return true;
+         return std::make_tuple(true, true);
       } else {
-         return false;
+         return std::make_tuple(true, false);
       }
    } else {
       //--------------------------------------------------
@@ -514,18 +535,18 @@ bool bdhet(tree& x, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
 			//cout << "Master sending death to slaves" << endl;
 			MPImastersenddeath(nx,mu,numslaves);
 #endif
-         return true;
+         return std::make_tuple(false, true);
       } else {
 #ifdef MPIBART
 			//cout << "Master sending no birth/deaths" << endl;
 			MPImastersendnobirthdeath(numslaves);
 #endif
-         return false;
+         return std::make_tuple(false, false);
       }
    }
 }
 
-bool bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
+std::tuple<bool, bool> bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
 {
    tree::npv goodbots;  //nodes we could birth at (split on)
    double PBx = getpb(x,xi,pi,goodbots); //prob of a birth at x
@@ -654,13 +675,13 @@ bool bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
 			//cout << "Master sending birth to slaves" << endl;
 			MPImastersendbirth(nx,v,c,mul,mur,numslaves);
 #endif
-         return true;
+         return std::make_tuple(true, true);
       } else {
 #ifdef MPIBART
 			//cout << "Master sending no births/deaths" << endl;
 			MPImastersendnobirthdeath(numslaves);
 #endif
-         return false;
+         return std::make_tuple(true, false);
       }
    } else {
       //--------------------------------------------------
@@ -752,13 +773,13 @@ bool bdprec(tree& x, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
 			//cout << "Master sending death to slaves" << endl;
 			MPImastersenddeath(nx,mu,numslaves);
 #endif
-         return true;
+         return std::make_tuple(false, true);
       } else {
 #ifdef MPIBART
 			//cout << "Master sending no birth/deaths" << endl;
 			MPImastersendnobirthdeath(numslaves);
 #endif
-         return false;
+         return std::make_tuple(false, false);
       }
    }
 }

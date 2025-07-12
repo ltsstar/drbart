@@ -2,7 +2,10 @@
 
 // typically called with w = 1, m = INFINITY, lower = 0, upper = 1
 double slice(double x0, logdensity* g, double w, double m, 
-             double lower, double upper) { // , 
+             double lower, double upper) {
+  constexpr double EPS = 1e-12;
+
+              // , 
              // dinfo& di, dinfo& diprec, 
              // std::vector<tree>& using_u, std::vector<tree>& using_uprec) {
   double x1; // new sample 
@@ -50,6 +53,13 @@ double slice(double x0, logdensity* g, double w, double m,
       R = x1;
     } else {
       L = x1;
+    }
+    if(R-L < EPS) {
+      // if the interval is too small, just return x0
+      // this can happen if the log density is very flat
+      // or if the interval is too small to sample from
+      x1 = x0;
+      break;
     }
   }
   

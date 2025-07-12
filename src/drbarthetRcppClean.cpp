@@ -4,6 +4,7 @@
 #include <fstream>
 #include <vector>
 #include <ctime>
+#include <algorithm>
 
 #include "read.h"
 #include "rng.h"
@@ -13,7 +14,72 @@
 #include "bd.h"
 #include "slice.h"
 
+#include <chrono>
+
 using namespace Rcpp;
+
+void draw_new_trees(
+  std::vector<tree>& t,
+  xinfo& xi,
+  dinfo& di,
+  double* allfit,
+  double* r,
+  double* ftemp,
+  size_t m,
+  pinfo& pi,
+  RNG& gen,
+  std::vector<tree>& tprec,
+  xinfo& xiprec,
+  dinfo& diprec,
+  double* allfitprec,
+  double* rprec,
+  double* ftempprec,
+  size_t mprec,
+  size_t n,
+  std::vector<double>& y,
+  double phi0,
+  double phistar,
+  pinfo& piprec
+);
+
+void new_u_vals(
+  size_t i,
+  size_t burn,
+  size_t thin,
+  size_t n,
+  size_t p,
+  std::vector<tree>& using_u,
+  std::vector<std::vector<int> >& leaf_counts,
+  std::vector<tree>& using_uprec,
+  std::vector<std::vector<int> >& leaf_countsprec,
+  std::vector<double>& x,
+  std::vector<double>& xprec,
+  double* allfit,
+  double* allfitprec,
+  dinfo& di,
+  dinfo& diprec,
+  xinfo& xi,
+  xinfo& xiprec,
+  bool SCALE_MIX,
+  NumericMatrix& uvals,
+  std::vector<double>& y,
+  ld_bartU& slice_density,
+  std::vector<std::vector<double> >& ucuts_post,
+  size_t m,
+  std::ofstream& treef,
+  std::vector<tree>& t,
+  size_t mprec,
+  std::ofstream& treefprec,
+  std::vector<tree>& tprec,
+  NumericVector& ssigma,
+  double phistar,
+  IntegerVector& trunc_below,
+  NumericVector& y_,
+  tree::npv& bnv,
+  tree::npv& bnvprec,
+  std::vector<tree::npv>& bnvs,
+  std::vector<tree::npv>& bnvsprec
+);
 
 // [[Rcpp::export]]
 List drbartRcppHeteroClean(NumericVector y_, 
@@ -139,6 +205,7 @@ List drbartRcppHeteroClean(NumericVector y_,
     allfitprec[i] = phi0; //phi0 is an "offset"
   }
   double* rprec = new double[n]; // scaled residual
+  double* global_rprec = new double[n*m];
   double* ftempprec = new double[n]; //fit of current tree
   dinfo diprec;
   diprec.n = n;
@@ -207,47 +274,156 @@ List drbartRcppHeteroClean(NumericVector y_,
       Rcout << "Iteration " << i << " / " << niters << 
         " (" << (int) 100 * i / niters << "%)\n";
     }
-    //draw trees
-    for (size_t j = 0; j < m; j++) {
-       fit(t[j] ,xi, di, ftemp);
-       for (size_t k=0;k<n;k++) {
-          allfit[k] = allfit[k] - ftemp[k];
-          r[k] = y[k] - allfit[k];
-          // di.y[k] = y[k] - allfit[k]; 
-       }
-       bdhet(t[j], xi, di, allfitprec, pi, gen);
-       drmuhet(t[j], xi, di, allfitprec, pi, gen);
-       fit(t[j], xi, di, ftemp);
-       for (size_t k = 0; k < n; k++) { 
-         allfit[k] += ftemp[k];
-       }
+
+    //double sum_r = 0.0;
+    //for (size_t j = 0; j < n; j++) {
+    //  sum_r += r[j]*r[j];
+    //}
+    //Rcout << "residuals2: " << sum_r << endl;
+
+    auto start = std::chrono::high_resolution_clock::now();
+    draw_new_trees(
+      t, xi, di, allfit, r, ftemp, m, pi, gen,
+      tprec, xiprec, diprec, allfitprec, rprec, ftempprec, mprec, n,
+      y, phi0, phistar, piprec
+    );
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Execution time draw_new_trees: " << duration.count() << " milliseconds" << std::endl;
+
+//    This is how rg workds (nx is a bot)
+//    int L,U;
+//    L=0; U = xi[v].size()-1;
+//    nx->rg(v,&L,&U);
+//    size_t c = L + floor(gen.uniform()*(U-L+1)); //U-L+1 is number of available split points
+    
+  start = std::chrono::high_resolution_clock::now();
+    new_u_vals(
+      i, burn, thin, n, p, using_u, leaf_counts, using_uprec, leaf_countsprec,
+      x, xprec, allfit, allfitprec, di, diprec, xi, xiprec,
+      SCALE_MIX, uvals, y, slice_density, ucuts_post,
+      m, treef, t, mprec, treefprec, tprec,
+      ssigma, phistar, trunc_below,
+      y_, bnv, bnvprec, bnvs, bnvsprec
+    );
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Execution time new_u_vals: " << duration.count() << " milliseconds" << std::endl;
+
+    static const double log_sqrt_2pi = 0.9189385332046727; // 0.5*log(2*pi)
+
+    double unnorm_loglikelihood_sum = 0.0;
+    for (size_t j = 0; j < n; j++) {
+      double log_prec = std::log(allfitprec[j]);
+      unnorm_loglikelihood_sum += -log_sqrt_2pi + 0.5 * log_prec - 0.5 * rprec[j] * rprec[j];
     }
-    
-    phistar = phi0;
-    //end hetero
-    
-     //begin hetero
-    for (size_t j = 0; j < mprec; j++) {
-       fit(tprec[j], xiprec, diprec, ftempprec);
-       for (size_t k = 0; k < n; k++) {
-          if (ftempprec[k] != ftempprec[k]) {
-            Rcout << "tree " << j <<" obs "<< k<<" "<< endl;
-            Rcout << tprec[j] << endl;
-            stop("nan in ftemp");
-           }
-          allfitprec[k] = allfitprec[k] / ftempprec[k];
-          rprec[k] = (y[k] - allfit[k]) * sqrt(allfitprec[k]);
-          // diprec.y[k] = (y[k] - allfit[k]) * sqrt(allfitprec[k]);
-       }
-       bdprec(tprec[j], xiprec, diprec, piprec, gen); 
-       drphi(tprec[j], xiprec, diprec, piprec, gen);
-       fit(tprec[j], xiprec, diprec, ftempprec);
-       for (size_t k = 0; k < n; k++) {
-        allfitprec[k] *= ftempprec[k];
+    Rcout << "Log-likelihood (unnormalized): " << unnorm_loglikelihood_sum << endl;
+
+    // calculate current likelihood
+    // real slow, we stick to the unnormalized likelihood for now
+    /*
+    double lik = 0.0;
+    for (size_t j = 0; j < n; j++)
+    {
+      double original_u = x[j * p];
+      double* x_ptr = &x[j * p]; 
+
+      double mixture_likelihood = 0.0;
+      std::vector<double> log_p(xi[0].size()+1);
+      double usplit;
+      for (int uu = -1; uu < static_cast<int>(xi[0].size()); ++uu) {
+        if (uu == -1) {
+          usplit = xi[0][0] / 2;
+        } else if (uu == xi[0].size() - 1) {
+          usplit = xi[0][uu] + (1 - xi[0][uu]) / 2;
+        } else {
+          usplit = xi[0][uu] + (xi[0][uu + 1] - xi[0][uu]) / 2;
+        }
+        x[j*p] = usplit;
+        double mu = 0.0;
+        for (size_t k = 0; k < m; ++k) {
+          tree::tree_cp tbn = t[k].bn(x_ptr,xi);
+          mu += tbn->getm();
+        }
+
+        double var = 1.0;
+        for (size_t k = 0; k < mprec; ++k) {
+          tree::tree_cp tbn = tprec[k].bn(x_ptr, xiprec);
+          var *= tbn->getm();
+        }
+
+        double prec = 1 / sqrt(var);
+        double diff = y[j] - mu;
+        log_p[uu + 1] = -log_sqrt_2pi - std::log(prec) - 0.5 * (diff * diff) / (prec * prec);        
+
+        //double ll = R::dnorm(y[j], mu, prec, 1);
+
+        //mixture_likelihood += ll;
       }
+        // Log-sum-exp trick
+      double max_log = *std::max_element(log_p.begin(), log_p.end());
+      double sum_exp = 0.0;
+      for (int k = 0; k < log_p.size(); ++k) {
+        sum_exp += std::exp(log_p[k] - max_log);
+      }
+
+      double log_mix = max_log + std::log(sum_exp) - std::log(log_p.size());
+      lik += log_mix;
+      x[j * p] = original_u;
     }
-    //end hetero
-    
+    Rcout << "Current Log-likelihood: " << lik << endl;
+    */
+  }
+  t.clear();
+  delete[] allfit;
+  delete[] r;
+  delete[] ftemp;
+  
+  treef.close();
+  
+  return(List::create(_["phistar"] = ssigma,
+                      _["ucuts"] = ucuts_post,
+											_["uvals"] = uvals));
+}
+
+void new_u_vals(
+  size_t i,
+  size_t burn,
+  size_t thin,
+  size_t n,
+  size_t p,
+  std::vector<tree>& using_u,
+  std::vector<std::vector<int> >& leaf_counts,
+  std::vector<tree>& using_uprec,
+  std::vector<std::vector<int> >& leaf_countsprec,
+  std::vector<double>& x,
+  std::vector<double>& xprec,
+  double* allfit,
+  double* allfitprec,
+  dinfo& di,
+  dinfo& diprec,
+  xinfo& xi,
+  xinfo& xiprec,
+  bool SCALE_MIX,
+  NumericMatrix& uvals,
+  std::vector<double>& y,
+  ld_bartU& slice_density,
+  std::vector<std::vector<double> >& ucuts_post,
+  size_t m,
+  std::ofstream& treef,
+  std::vector<tree>& t,
+  size_t mprec,
+  std::ofstream& treefprec,
+  std::vector<tree>& tprec,
+  NumericVector& ssigma,
+  double phistar,
+  IntegerVector& trunc_below,
+  NumericVector& y_,
+  tree::npv& bnv,
+  tree::npv& bnvprec,
+  std::vector<tree::npv>& bnvs,
+  std::vector<tree::npv>& bnvsprec
+) {  
     //begin dr bart
     
     // impute censored values
@@ -273,21 +449,28 @@ List drbartRcppHeteroClean(NumericVector y_,
     vector<std::map<tree::tree_cp,size_t> > bnmapsprec;
     
     //get trees splitting on u, the first variable
+    int tsu = 0;
     for (size_t tt = 0; tt< m ; ++tt) {
       if (t[tt].nuse(0)) {
         using_u.push_back(t[tt]);
         using_u_ix.push_back(tt);
+        tsu++;
       }
     }
+    Rcout << "Number of mean trees splitting on u: " << tsu << endl;
     
+    tsu = 0;
     if (SCALE_MIX) {
       for (size_t tt = 0; tt < mprec; ++tt) {
         if (tprec[tt].nuse(0)) {
           using_uprec.push_back(tprec[tt]);
           using_u_ix_prec.push_back(tt);
+          tsu++;
         }
       }
     }
+    Rcout << "Number of var. trees splitting on u: " << tsu << endl;
+
     //update slice_density object
     slice_density.using_u = using_u;
     if (SCALE_MIX) {
@@ -330,103 +513,94 @@ List drbartRcppHeteroClean(NumericVector y_,
         bnmapsprec.push_back(bnmap);
       }
     }
-    //loop over each observation
+
+      //loop over each observation
     std::vector<int> tmpcounts;
     std::vector<int> tmpcountsprec;
     std::vector<std::vector<int> > new_counts(using_u.size());
     size_t jj = 0; //<-- single latent variable for now.
-    
-//    This is how rg workds (nx is a bot)
-//    int L,U;
-//    L=0; U = xi[v].size()-1;
-//    nx->rg(v,&L,&U);
-//    size_t c = L + floor(gen.uniform()*(U-L+1)); //U-L+1 is number of available split points
-    
-    for (size_t k = 0; k < n; k++) {
-      bool proceed = true;
-      
-      int L, U;
-      L = 0;
-      U = xi[0].size() - 1;
-      
-      //check that removing u won't result in bottom nodes 
-      //todo: sample u uniformly from current partition? does that help?
-      for (size_t tt = 0; tt < using_u.size(); ++tt) {
-        tmpcounts = leaf_counts[tt];
-        update_counts(k, tmpcounts, using_u[tt], xi, di, bnmaps[tt], -1); 
-        new_counts[tt] = tmpcounts;
-        if (*std::min_element(tmpcounts.begin(), tmpcounts.end()) < 5) {
+  for (size_t k = 0; k < n; k++) {
+    bool proceed = true;
+
+    int L, U;
+    L = 0;
+    U = xi[0].size() - 1;
+
+    //check that removing u won't result in bottom nodes 
+    for (size_t tt = 0; tt < using_u.size(); ++tt) {
+      tmpcounts = leaf_counts[tt];
+      update_counts(k, tmpcounts, using_u[tt], xi, di, bnmaps[tt], -1); 
+      new_counts[tt] = tmpcounts;
+      if (*std::min_element(tmpcounts.begin(), tmpcounts.end()) < 5) {
+        proceed = false;
+        break;
+      }
+    }
+
+    if (SCALE_MIX) {
+      for (size_t tt = 0; tt < using_uprec.size(); ++tt) {
+        tmpcountsprec = leaf_countsprec[tt];
+        update_counts(k, tmpcountsprec, using_uprec[tt], xiprec, diprec, bnmapsprec[tt], -1); 
+        if (*std::min_element(tmpcountsprec.begin(), tmpcountsprec.end()) < 5) {
           proceed = false;
           break;
         }
       }
-      
+    }
+
+    //resample u
+    if (proceed) {
+      leaf_counts = new_counts;
+
       if (SCALE_MIX) {
         for (size_t tt = 0; tt < using_uprec.size(); ++tt) {
-          tmpcountsprec = leaf_countsprec[tt];
-          update_counts(k, tmpcountsprec, using_uprec[tt], xiprec, diprec, bnmapsprec[tt], -1); 
-          if (*std::min_element(tmpcountsprec.begin(), tmpcountsprec.end()) < 5) {
-            proceed = false;
-            break;
-          }
+          update_counts(k, leaf_countsprec[tt], using_uprec[tt], xiprec, diprec, bnmapsprec[tt], -1);
         }
       }
-      
-      //resample u
-      if (proceed) {
-        leaf_counts = new_counts;
-        
-        if (SCALE_MIX) {
-          for (size_t tt = 0; tt < using_uprec.size(); ++tt) {
-            update_counts(k, leaf_countsprec[tt], using_uprec[tt], xiprec, diprec, bnmapsprec[tt], -1);
-          }
-        }
-        
-        double f = allfit[k] - fit_i(k, using_u, xi, di); //fit from trees that don't use u
-        double s;
-        double fprec;
-        if (SCALE_MIX) {
-          fprec = allfitprec[k] / fit_i_mult(k, using_uprec, xiprec, diprec);
-          s = 1 / sqrt(fprec);
-        } else {
-          s = 1 / sqrt(allfitprec[k]);
-        }
-        
-        slice_density.sigma = s;
-        slice_density.i = k;
-        slice_density.f = f;
-        slice_density.yobs = y[k];
-        double oldu = x[jj + k * p];
-        double newu = slice(oldu, &slice_density, 1.0, INFINITY, 0., 1.); //,
-                            // di, diprec, using_u, using_uprec);
-        x[jj + k * p] = newu;
-        
-        if (SCALE_MIX) {
-          xprec[jj + k * p] = newu;
-        }
-        
+
+      double f = allfit[k] - fit_i(k, using_u, xi, di); //fit from trees that don't use u
+      double s;
+      double fprec;
+      if (SCALE_MIX) {
+        fprec = allfitprec[k] / fit_i_mult(k, using_uprec, xiprec, diprec);
+        s = 1 / sqrt(fprec);
+      } else {
+        s = 1 / sqrt(allfitprec[k]);
+      }
+
+      slice_density.sigma = s;
+      slice_density.i = k;
+      slice_density.f = f;
+      slice_density.yobs = y[k];
+      double oldu = x[jj + k * p];
+      double newu = slice(oldu, &slice_density, 1.0, INFINITY, 0., 1.);
+      x[jj + k * p] = newu;
+
+      if (SCALE_MIX) {
+        xprec[jj + k * p] = newu;
+      }
+
+      //update counts with new u
+      for (size_t tt = 0; tt < using_u.size(); ++tt) {
+        update_counts(k, leaf_counts[tt], using_u[tt], xi, di, bnmaps[tt], 1);
+      }
+      // add back the fit from trees splitting on u
+      allfit[k] = f + fit_i(k, using_u, xi, di);
+
+      if (SCALE_MIX) {
         //update counts with new u
-        for (size_t tt = 0; tt < using_u.size(); ++tt) {
-          update_counts(k, leaf_counts[tt], using_u[tt], xi, di, bnmaps[tt], 1);
+        for (size_t tt = 0; tt < using_uprec.size(); ++tt) {
+          update_counts(k, leaf_countsprec[tt], using_uprec[tt], xiprec, diprec, bnmapsprec[tt], 1);
         }
         // add back the fit from trees splitting on u
-        allfit[k] = f + fit_i(k, using_u, xi, di); //should save these in previous for loop?
-        
-        if (SCALE_MIX) {
-          //update counts with new u
-          for (size_t tt = 0; tt < using_uprec.size(); ++tt) {
-            update_counts(k, leaf_countsprec[tt], using_uprec[tt], xiprec, diprec, bnmapsprec[tt], 1);
-          }
-          // add back the fit from trees splitting on u
-          allfitprec[k] = fprec * fit_i_mult(k, using_uprec, xiprec, diprec);
-        }
+        allfitprec[k] = fprec * fit_i_mult(k, using_uprec, xiprec, diprec);
       }
-			if (i >= burn & i % thin == 0) {
-				uvals((i - burn) / thin, k) = x[jj + k * p];
-			}
     }
-    //end dr bart
-    
+    if (i >= burn && i % thin == 0) {
+      uvals((i - burn) / thin, k) = x[jj + k * p];
+    }
+  }
+  //end dr bart
     if (i >= burn & i % thin == 0) {
 // 			for (size_t k = 0; k < n; k++) {
 // 				uvals((i - burn) / thin) = x[jj + k * p];
@@ -443,16 +617,120 @@ List drbartRcppHeteroClean(NumericVector y_,
       
       ssigma((i - burn) / thin) = phistar;
     }
-  }
-  
-  t.clear();
-  delete[] allfit;
-  delete[] r;
-  delete[] ftemp;
-  
-  treef.close();
-  
-  return(List::create(_["phistar"] = ssigma,
-                      _["ucuts"] = ucuts_post,
-											_["uvals"] = uvals));
+}
+
+void draw_new_trees(
+  std::vector<tree>& t,
+  xinfo& xi,
+  dinfo& di,
+  double* allfit,
+  double* r,
+  double* ftemp,
+  size_t m,
+  pinfo& pi,
+  RNG& gen,
+  std::vector<tree>& tprec,
+  xinfo& xiprec,
+  dinfo& diprec,
+  double* allfitprec,
+  double* rprec,
+  double* ftempprec,
+  size_t mprec,
+  size_t n,
+  std::vector<double>& y,
+  double phi0,
+  double phistar,
+  pinfo& piprec
+) {
+
+    //draw trees
+    int birth_count = 0; //count of births
+    int death_count = 0; //count of deaths
+    int birth_count_prec = 0; //count of births for precision trees
+    int death_count_prec = 0; //count of deaths for precision trees
+
+    int birth_accept = 0;
+    int death_accept = 0;
+    int birth_accept_prec = 0; //accept/reject count for precision trees
+    int death_accept_prec = 0; //accept/reject count for precision trees
+
+    for (size_t j = 0; j < m; j++) {
+       fit(t[j] ,xi, di, ftemp);
+       for (size_t k=0;k<n;k++) {
+          allfit[k] = allfit[k] - ftemp[k];
+          r[k] = (y[k] - allfit[k]);
+          // di.y[k] = y[k] - allfit[k]; 
+       }
+      auto bdhet_result = bdhet(t[j], xi, di, allfitprec, pi, gen);
+      auto [birth_death, accept_reject] = bdhet_result;
+
+      if (birth_death) {
+        birth_count++;
+        if (accept_reject) {
+          birth_accept++;
+        }
+      } else {
+        death_count++;
+        if (accept_reject) {
+          death_accept++;
+        }
+      }
+
+       drmuhet(t[j], xi, di, allfitprec, pi, gen);
+       fit(t[j], xi, di, ftemp);
+       for (size_t k = 0; k < n; k++) { 
+         allfit[k] += ftemp[k];
+       }
+    }
+    for (size_t k = 0; k < n; k++) {
+      
+    }
+
+    
+    phistar = phi0;
+    //end hetero
+    
+     //begin hetero
+    for (size_t j = 0; j < mprec; j++) {
+       fit(tprec[j], xiprec, diprec, ftempprec);
+       for (size_t k = 0; k < n; k++) {
+          if (ftempprec[k] != ftempprec[k]) {
+            Rcout << "tree " << j <<" obs "<< k<<" "<< endl;
+            Rcout << tprec[j] << endl;
+            stop("nan in ftemp");
+           }
+          if(ftempprec[k] <= 0) {
+	          Rcout << "ftempprec <= 0: " << ftempprec[k] << endl;
+	        }
+          allfitprec[k] = allfitprec[k] / ftempprec[k];
+          rprec[k] = (y[k] - allfit[k]) * sqrt(allfitprec[k]);
+          // diprec.y[k] = (y[k] - allfit[k]) * sqrt(allfitprec[k]);
+       }
+      auto bdprec_result = bdprec(tprec[j], xiprec, diprec, piprec, gen); 
+      auto [birth_death_prec, accept_reject_prec] = bdprec_result;
+
+      if (birth_death_prec) {
+        birth_count_prec++;
+        if (accept_reject_prec) {
+          birth_accept_prec++;
+        }
+      } else {
+        death_count_prec++;
+        if (accept_reject_prec) {
+          death_accept_prec++;
+        }
+      }
+
+       drphi(tprec[j], xiprec, diprec, piprec, gen);
+       fit(tprec[j], xiprec, diprec, ftempprec);
+       for (size_t k = 0; k < n; k++) {
+        allfitprec[k] *= ftempprec[k];
+      }
+    }
+    //end hetero
+
+    Rcout << "Births: " << birth_count << ", Deaths: " << death_count 
+          << ", Birth Accepts: " << birth_accept << ", Death Accepts: " << death_accept << endl;
+    Rcout << "Precision Births: " << birth_count_prec << ", Deaths: " << death_count_prec 
+          << ", Birth Accepts: " << birth_accept_prec << ", Death Accepts: " << death_accept_prec << endl;
 }

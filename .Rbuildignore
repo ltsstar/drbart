@@ -10,3 +10,7 @@
 ^R/latent_cont\.R$
 ^R/lv\.R$
 ^R/dgp\.R$
+^.*\.data$
+^.*\.txt$
+^.*\.json$
+.*\.csv$
