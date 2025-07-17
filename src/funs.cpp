@@ -851,14 +851,20 @@ void drmuhet(tree& t, xinfo& xi, dinfo& di, double* phi, pinfo& pi, RNG& gen)
 	for(tree::npv::size_type i=0;i!=bnv.size();i++) {
     double fcvar = 1.0/(a+sv[i].n);
     double fcmean = sv[i].sy*fcvar;
+
+	double new_mean = fcmean + gen.normal()*sqrt(fcvar);
     
-		bnv[i]->setm(fcmean + gen.normal()*sqrt(fcvar));
-    if(bnv[i]->getm() != bnv[i]->getm()) {
-      for(int ii=0; ii<di.n; ++ii) Rcout << *(di.x + ii*di.p) <<" "; //*(x + p*i+j)
-      Rcout << endl<<" a "<< a<<" b "<<b<<" svi[n] "<<sv[i].n<<" i "<<i;
-      Rcout << endl<<" svi[n0] " << sv[i].n0 << endl;
-      Rcout << endl << t;
-      Rcpp::stop("drmuhet failed");
+	if (!std::isnan(new_mean)) {
+		bnv[i]->setm(new_mean);
+	} else {
+		Rcout << "Warning: NaN detected in drmuhet for node " << i 
+					<< ", skipping update (fcmean=" << fcmean 
+					<< ", fcvar=" << fcvar << ")" << endl;
+      //for(int ii=0; ii<di.n; ++ii) Rcout << *(di.x + ii*di.p) <<" "; //*(x + p*i+j)
+      //Rcout << endl<<" a "<< a<<" b "<<b<<" svi[n] "<<sv[i].n<<" i "<<i;
+      //Rcout << endl<<" svi[n0] " << sv[i].n0 << endl;
+      //Rcout << endl << t;
+      //Rcpp::stop("Warning: drmuhet failed");
     }
 	}
 }
