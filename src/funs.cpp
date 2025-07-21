@@ -881,6 +881,10 @@ void drphi(tree& t, xinfo& xi, dinfo& di, pinfo& pi, RNG& gen)
 		double mu;
 		double tau = pi.tau, n = sv[i].n, sy2 = sv[i].sy2;
 		
+		// Add epsion to sy2 to prevent it from being exactly zero
+		// Because this would cause the do_rgig1 function to fail
+		if (sy2 < 1e-8) sy2 = 1e-8;
+
 		//compute weights
 		double ga = tau+0.5*n, gb = tau+0.5*sy2;
 		double loga = lgamma(ga) - ga*log(gb); //nc for gamma
