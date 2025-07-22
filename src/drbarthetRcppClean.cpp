@@ -424,6 +424,7 @@ void new_u_vals(
   std::vector<tree::npv>& bnvs,
   std::vector<tree::npv>& bnvsprec
 ) {  
+    double max_prec = 1e10;
     //begin dr bart
     
     // impute censored values
@@ -593,7 +594,8 @@ void new_u_vals(
           update_counts(k, leaf_countsprec[tt], using_uprec[tt], xiprec, diprec, bnmapsprec[tt], 1);
         }
         // add back the fit from trees splitting on u
-        allfitprec[k] = fprec * fit_i_mult(k, using_uprec, xiprec, diprec);
+        double new_fitprec = fprec * fit_i_mult(k, using_uprec, xiprec, diprec);
+        allfitprec[k] = std::min(max_prec, new_fitprec);
       }
     }
     if (i >= burn && i % thin == 0) {
